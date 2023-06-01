@@ -1,0 +1,393 @@
+---
+title: "2_try_simple_model"
+output: html_document
+date: "2023-05-16"
+---
+
+This markdown includes Model 2: Animal type, age, breed, coat colour. Trained on the regular data, the 3 outcome values, and the "even" dataset.
+
+```{r}
+pacman::p_load(
+  xgboost,
+  tidyverse,
+  caret,
+)
+
+```
+
+
+```{r}
+#read in the clean data set
+bigdf<- read_csv("data/clean_data.csv", show_col_types = FALSE)
+```
+```{r}
+#getting the needed coulms 
+df <- bigdf[c('animal_type', 'breed', 'color', "age_upon_intake_(years)", 'time_in_shelter_weeks')]
+
+class(df$animal_type) #character
+class(df$breed) #character
+class(df$color) #character
+class(df$`age_upon_intake_(years)`) #numeric
+class(df$time_in_shelter_weeks) #numeric
+
+df$animal_type <- as.factor(df$animal_type)
+df$breed <- as.factor(df$breed)
+df$color <- as.factor(df$color)
+df$`age_upon_intake_(years)` <- as.factor(df$`age_upon_intake_(years)`)
+
+#this remakes the time variable to be in increments of one, before there where some number og weeks no animal was in, which might have coused trubble
+df$time_in_shelter_weeks <- as.factor(df$time_in_shelter_weeks)
+df$time_in_shelter_weeks <- as.numeric(df$time_in_shelter_weeks)
+```
+
+Split the data for training and testing (80/20 split)
+The training data set is used to fit the model, and the testing data set is held out for validation. This allows us to validate the performance of our model (“hold one out cross-validation”).
+```{r}
+# createDataPartition() function from the caret package to split the original dataset into a training and testing set and split data into training (80%) and testing set (20%)
+parts <- createDataPartition(df$time_in_shelter_weeks, p = 0.8, list = F)
+train <- df[parts, ]
+test <- df[-parts, ]
+
+train_data <- data.matrix(train[,-5])                  # independent variables for train, here the variables of the trees
+train_label <- train[,5]                                # dependent variables for train, here the speises of tree
+  
+test_data <- data.matrix(test[,-5])                    # independent variables for test, here the variables of the trees
+test_label <- test[,5]  
+
+# the the dependent variables needs to be vectores not dataframes for the xgb matrix function to accept them 
+train_label <- train_label$time_in_shelter_weeks
+test_label <- test_label$time_in_shelter_weeks
+
+```
+
+Create the xgb.DMatrix objects
+```{r}
+# Transform the two data sets into xgb.Matrix
+xgb_train <- xgb.DMatrix(data=train_data,label=train_label)
+xgb_test <- xgb.DMatrix(data=test_data,label=test_label)
+```
+
+Define the main parameters
+
+The multi:softprob objective tells the algorithm to calculate probabilities for every possible outcome, for every observation.
+```{r}
+# Define the parameters for multinomial classification
+time <- as.factor(df$time_in_shelter_weeks)
+num_class <- length(levels(time))+1
+
+params <- list(
+  booster = "gbtree",
+  eta = 0.04,
+  max_depth = 10,
+  gamma = 0.01,
+  nthread = 4,
+  subsample = 0.75,
+  alpha = 1,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = num_class
+)
+```
+
+Train the model, This is commented out as the model has already been run and saved, it is loaded in in the next chunk  
+```{r}
+# # Train the XGBoost classifer
+# model = xgb.train(
+#   params = params,
+#   data = xgb_train,
+#   nrounds = 50,
+#   early_stopping_rounds = 10,
+#   watchlist = list(val1=xgb_train, val2=xgb_test),
+#   verbose = 1
+# )
+# 
+# # Review the final model and results
+# model
+```
+
+```{r}
+# loading and saving the model 
+#xgb.save(model, 'models/model_2_weeks')
+model <- xgb.load('models/model_2_weeks')
+```
+
+
+```{r}
+# Predict outcomes with the test data
+xgb_pred = predict(model,test_data,reshape=T)
+xgb_pred = as.data.frame(xgb_pred)
+colnames(xgb_pred) = levels(time)
+
+# Identify the class with the highest probability for each prediction
+# Iterate over the predictions and identify the label (class) with the highest probability.
+# Use the predicted label with the highest probability
+xgb_pred$prediction <- apply(xgb_pred, 1, function(x) colnames(xgb_pred)[which.max(x)])
+xgb_pred$label <- levels(time)[test_label] 
+
+# Calculate the accuracy of the predictions. This compares the true labels from the test data set with the predicted labels (with the highest probability), and it represents the percent of times that were accuracy predicted using the XGBoost model. 
+xgb_pred$prediction <- as.numeric(xgb_pred$prediction)
+xgb_pred$prediction <- xgb_pred$prediction -1
+
+# Calculate the final accuracy
+result = sum(xgb_pred$prediction==xgb_pred$label)/nrow(xgb_pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+```
+
+
+
+############################################################################
+Trinary outcome:
+############################################################################
+
+
+```{r}
+#getting the needed coulms 
+df2 <- bigdf[c('animal_type', 'breed', 'color', "age_upon_intake_(years)", 'trinary')]
+
+class(df2$trinary) #character
+
+df2$animal_type <- as.factor(df2$animal_type)
+df2$breed <- as.factor(df2$breed)
+df2$color <- as.factor(df2$color)
+df2$trinary <- as.factor(df2$trinary)
+
+#this remakes the time variable to be in increments of one, before there where some number of weeks no animal was in, which caused trouble
+df2$trinary <- as.factor(df2$trinary)
+df2$trinary <- as.numeric(df2$trinary)
+
+time2 <- as.factor(df2$trinary)
+```
+
+Split the data for training and testing (80/20 split)
+The training data set is used to fit the model, and the testing data set is held out for validation. This allows us to validate the performance of our model (“hold one out cross-validation”).
+
+```{r}
+# createDataPartition() function from the caret package to split the original dataset into a training and testing set and split data into training (80%) and testing set (20%)
+parts2 <- createDataPartition(df2$trinary, p = 0.80, list = F)
+train2 <- df2[parts2, ]
+test2 <- df2[-parts2, ]
+
+train_data2 <- data.matrix(train2[,-5])                  # independent variables for train
+train_label2 <- train2[,5]                               # dependent variables for train
+  
+test_data2 <- data.matrix(test2[,-5])                    # independent variables for test
+test_label2 <- test2[,5]                                 # dependent variables for test
+
+# the the dependent variables needs to be vectores not dataframes for the xgb matrix function to accept them
+train_label2 <- train_label2$trinary
+test_label2 <- test_label2$trinary
+
+```
+
+Create the xgb.DMatrix objects
+```{r}
+# Transform the two data sets into xgb.Matrix
+xgb_train2 <- xgb.DMatrix(data=train_data2,label=train_label2)
+xgb_test2 <- xgb.DMatrix(data=test_data2,label=test_label2)
+```
+
+Define the main parameters
+XGBoost, like most other algorithms, works best when its parameters are hypertuned for optimal performance. The algorithm requires that we define the booster, objective, learning rate, and other parameters. This example uses a set of parameters that I found to be optimal through simple cross-validation. You’ll need to spend most of your time in this step; it’s imperative that you understand your data and use cross-validation.
+
+
+The multi:softprob objective tells the algorithm to calculate probabilities for every possible outcome (in this case, a probability for each of the three flower species), for every observation.
+```{r}
+# Define the parameters for multinomial classification
+time2 <- as.factor(df2$trinary)
+num_class2 <- length(levels(time2))+1
+
+
+params2 <- list(
+  booster = "gbtree",
+  eta = 0.05,
+  max_depth = 10,
+  gamma = 0.01,
+  nthread = 4,
+  subsample = 0.75,
+  alpha = 1,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = num_class2
+)
+```
+
+Train the model, This is commented out as the model has already been run and saved, it is loaded in in the next chunk  
+```{r}
+# # Train the XGBoost classifer
+# model2 = xgb.train(
+#   params = params2,
+#   data = xgb_train2,
+#   nrounds = 50,
+#   early_stopping_rounds = 10,
+#   watchlist = list(val1=xgb_train2, val2=xgb_test2),
+#   verbose = 1
+# )
+# 
+# # Review the final model and results
+# model2
+```
+saving and loading the model
+```{r}
+# saving the model
+#xgb.save(model2, 'models/model_2_3out')
+
+#loading in the model
+model2 <- xgb.load('models/model_2_3out')
+```
+
+
+```{r}
+# Predict outcomes with the test data
+xgb_pred2 = predict(model2,test_data2,reshape=T)
+xgb_pred2 = as.data.frame(xgb_pred2)
+colnames(xgb_pred2) = levels(time2)
+
+#fixing the column with no name and renaming the others 
+xgb_pred2[1] <- NULL
+colnames(xgb_pred2)[1] = "1"
+colnames(xgb_pred2)[2] = "2"
+colnames(xgb_pred2)[3] = "3"
+
+# Identify the class with the highest probability for each prediction
+# Iterate over the predictions and identify the label (class) with the highest probability. This allows us to evaluate the true performance of the model by comparing the actual labels with the predicted labels.
+# Use the predicted label with the highest probability
+xgb_pred2$prediction <- apply(xgb_pred2, 1, function(x) colnames(xgb_pred2)[which.max(x)])
+xgb_pred2$label <- levels(time2)[test_label2] 
+
+# How accurate are the predictions?
+# Calculate the accuracy of the predictions. This compares the true labels from the test data set with the predicted labels (with the highest probability), and it represents the percent of times that were accuracy predicted using the XGBoost model. 
+
+# Calculate the final accuracy
+result2 = sum(xgb_pred2$prediction == xgb_pred2$label)/nrow(xgb_pred2)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result2)))
+```
+
+
+
+
+
+############################################################################
+Data with removed lower values:
+############################################################################
+
+
+```{r}
+#read in the clean data set
+bigdf3<- read_csv("data/clean_data_even.csv", show_col_types = FALSE)
+```
+
+
+```{r}
+# getting the needed coulmns 
+df3 <- bigdf3[c('animal_type', 'breed', 'color', "age_upon_intake_(years)", 'time_in_shelter_weeks')]
+
+# checking the classes of the data and changing when necessary
+class(df3$animal_type) #character
+class(df3$breed) #character
+class(df3$`age_upon_intake_(years)`) #numeric
+class(df3$time_in_shelter_weeks) #numeric
+
+df3$animal_type <- as.factor(df3$animal_type)
+df3$breed <- as.factor(df3$breed)
+df3$`age_upon_intake_(years)` <- as.factor(df3$`age_upon_intake_(years)`)
+
+#this remakes the time variable to be in increments of one, before there where some number of weeks no animal was in, which caused trouble for our model
+df3$time_in_shelter_weeks <- as.factor(df3$time_in_shelter_weeks)
+df3$time_in_shelter_weeks <- as.numeric(df3$time_in_shelter_weeks)
+```
+
+Split the data for training and testing (80/20 split)
+The training data set is used to fit the model, and the testing data set is held out for validation. This allows us to validate the performance of our model (“hold one out cross-validation”).
+```{r}
+# createDataPartition() function from the caret package to split the original dataset into a training and testing set and split data into training (80%) and testing set (20%)
+parts3 <- createDataPartition(df3$time_in_shelter_weeks, p = 0.8, list = F)
+train3 <- df3[parts3, ]
+test3 <- df3[-parts3, ]
+
+train_data3 <- data.matrix(train3[,-5])                  # independent variables for train, here the variables of the trees
+train_label3 <- train3[,5]                                # dependent variables for train, here the speises of tree
+  
+test_data3 <- data.matrix(test3[,-5])                    # independent variables for test, here the variables of the trees
+test_label3 <- test3[,5]  
+
+# the the dependent variables needs to be vectores not dataframes for the xgb matrix function to accept them
+train_label3 <- train_label3$time_in_shelter_weeks
+test_label3 <- test_label3$time_in_shelter_weeks
+
+```
+
+Create the xgb.DMatrix objects
+```{r}
+# Transform the two data sets into xgb.Matrix
+xgb_train3 <- xgb.DMatrix(data=train_data3,label=train_label3)
+xgb_test3 <- xgb.DMatrix(data=test_data3,label=test_label3)
+```
+
+Define the main parameters
+
+The multi:softprob objective tells the algorithm to calculate probabilities for every possible outcome, for every observation.
+```{r}
+# Define the parameters for multinomial classification
+time3 <- as.factor(df3$time_in_shelter_weeks)
+num_class3 <- length(levels(time3))+1
+
+params <- list(
+  booster = "gbtree",
+  eta = 0.04,
+  max_depth = 10,
+  gamma = 0.01,
+  nthread = 4,
+  subsample = 0.75,
+  alpha = 1,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = num_class3
+)
+```
+
+Train the model, This is commented out as the model has already been run and saved, it is loaded in in the next chunk  
+```{r}
+# # Train the XGBoost classifer
+# model3 = xgb.train(
+#   params = params,
+#   data = xgb_train3,
+#   nrounds = 50,
+#   early_stopping_rounds = 10,
+#   watchlist = list(val1=xgb_train3, val2=xgb_test3),
+#   verbose = 1
+# )
+# 
+# # Review the final model and results
+# model3
+```
+
+```{r}
+# loading and saving the model 
+# xgb.save(model3, 'models/model_2_even')
+model3 <- xgb.load('models/model_2_even')
+```
+
+
+```{r}
+# Predict outcomes with the test data
+xgb_pred3 = predict(model3,test_data3,reshape=T)
+xgb_pred3 = as.data.frame(xgb_pred3)
+colnames(xgb_pred3) = levels(time3)
+
+# Identify the class with the highest probability for each prediction
+# Iterate over the predictions and identify the label (class) with the highest probability.
+# Use the predicted label with the highest probability
+xgb_pred3$prediction <- apply(xgb_pred3, 1, function(x) colnames(xgb_pred3)[which.max(x)])
+xgb_pred3$label <- levels(time3)[test_label3] 
+
+# Calculate the accuracy of the predictions. This compares the true labels from the test data set with the predicted labels (with the highest probability), and it represents the percent of times that were accuracy predicted using the XGBoost model. 
+xgb_pred3$prediction <- as.numeric(xgb_pred3$prediction)
+xgb_pred3$prediction <- xgb_pred3$prediction -1
+
+# Calculate the final accuracy
+result3 = sum(xgb_pred3$prediction == xgb_pred3$label)/nrow(xgb_pred3)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result3)))
+```
